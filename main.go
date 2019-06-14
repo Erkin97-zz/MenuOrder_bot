@@ -37,6 +37,9 @@ var menuFirstKeyboard = tgbotapi.NewReplyKeyboard(
 		tgbotapi.NewKeyboardButton("Snacks 🥨"),
 	),
 	tgbotapi.NewKeyboardButtonRow(
+		tgbotapi.NewKeyboardButton("Submit order 🔘"),
+	),
+	tgbotapi.NewKeyboardButtonRow(
 		tgbotapi.NewKeyboardButton("Back 🔙"),
 	),
 )
@@ -73,6 +76,9 @@ func main() {
 	updates, err := bot.GetUpdatesChan(u)
 	state := make(map[string]string)
 	category := make(map[string]string)
+	userCart := make(map[string]Cart)
+
+	orderNumber := 100
 
 	for update := range updates {
 		if update.Message == nil { // ignore any non-Message Updates
@@ -81,8 +87,13 @@ func main() {
 
 		messageText := update.Message.Text
 		currentState := state[update.Message.From.UserName]
+		currentCart := userCart[update.Message.From.UserName]
 
 		log.Printf("[%s] %s - state: %s", update.Message.From.UserName, update.Message.Text, currentState)
+
+		if update.InlineQuery != nil {
+			fmt.Print("Doing something")
+		}
 
 		if currentState == "" || currentState == "main" { // main state
 			if messageText == "Make Order 🍽" {
@@ -138,6 +149,7 @@ func main() {
 				msg.ReplyMarkup = orderKeyboard
 				bot.Send(msg)
 				state[update.Message.From.UserName] = "order"
+				continue
 			} else if menuData[messageText] != nil {
 				msgText := "Please choose product"
 				var smoothieList [][]tgbotapi.KeyboardButton
@@ -149,12 +161,20 @@ func main() {
 					smoothieList[index][0] = newButton
 				}
 				replyKeyboard := tgbotapi.NewReplyKeyboard(smoothieList...)
-				log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
 				msg := tgbotapi.NewMessage(update.Message.Chat.ID, msgText)
 				msg.ReplyMarkup = replyKeyboard
 				bot.Send(msg)
 				state[update.Message.From.UserName] = "product"
 				category[update.Message.From.UserName] = messageText
+			} else if messageText == "Submit order 🔘" {
+				currentCart = Cart{}
+				msgText := fmt.Sprintf("Your order has been submitted. Your order number is: %d", orderNumber)
+				orderNumber++
+				msg := tgbotapi.NewMessage(update.Message.Chat.ID, msgText)
+				msg.ReplyMarkup = mainKeyboard
+				bot.Send(msg)
+				state[update.Message.From.UserName] = "main"
+				userCart[update.Message.From.UserName] = currentCart
 			} else {
 				msgText := fmt.Sprintln("Choose category")
 				msg := tgbotapi.NewMessage(update.Message.Chat.ID, msgText)
@@ -163,18 +183,59 @@ func main() {
 				bot.Send(msg)
 				state[update.Message.From.UserName] = "category"
 			}
+
+			// show cart
+			var cartList [][]tgbotapi.InlineKeyboardButton
+			cartList = make([][]tgbotapi.InlineKeyboardButton, len(currentCart.Products))
+
+			for index, drink := range currentCart.Products {
+				cartList[index] = make([]tgbotapi.InlineKeyboardButton, 1)
+				newButton := tgbotapi.NewInlineKeyboardButtonData(drink, string(index))
+				cartList[index][0] = newButton
+			}
+			inlineCartKeyboard := tgbotapi.NewInlineKeyboardMarkup(cartList...)
+			msgText := fmt.Sprintln("Your cart:")
+			msg := tgbotapi.NewMessage(update.Message.Chat.ID, msgText)
+			msg.ReplyMarkup = inlineCartKeyboard
+			bot.Send(msg)
+
 		} else if currentState == "product" {
 			if messageText == "Back 🔙" {
 				msgText := fmt.Sprintln("Choose category")
 				msg := tgbotapi.NewMessage(update.Message.Chat.ID, msgText)
-				log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
 				msg.ReplyMarkup = menuFirstKeyboard
 				bot.Send(msg)
 				state[update.Message.From.UserName] = "category"
+			} else {
+				currentCart.Products = append(currentCart.Products, messageText)
 			}
+			// show cart
+
+			var cartList [][]tgbotapi.InlineKeyboardButton
+			cartList = make([][]tgbotapi.InlineKeyboardButton, len(currentCart.Products))
+
+			for index, drink := range currentCart.Products {
+				cartList[index] = make([]tgbotapi.InlineKeyboardButton, 1)
+				newButton := tgbotapi.NewInlineKeyboardButtonData(drink, string(index))
+				cartList[index][0] = newButton
+			}
+			inlineCartKeyboard := tgbotapi.NewInlineKeyboardMarkup(cartList...)
+			msgText := fmt.Sprintln("Your cart:")
+			msg := tgbotapi.NewMessage(update.Message.Chat.ID, msgText)
+			msg.ReplyMarkup = inlineCartKeyboard
+			bot.Send(msg)
+
+			userCart[update.Message.From.UserName] = currentCart
 		} else {
 			log.Println("roflan bug")
 			state[update.Message.From.UserName] = "main"
 		}
 	}
+}
+
+// Cart cart structure for user
+type Cart struct {
+	ID       string
+	Price    int64
+	Products []string
 }
